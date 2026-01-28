@@ -39,6 +39,7 @@ const STEPS = [
     { status: 'pending', label: 'Order Placed', icon: Clock },
     { status: 'confirmed', label: 'Confirmed', icon: CheckCircle2 },
     { status: 'preparing', label: 'Preparing', icon: Package },
+    { status: 'ready', label: 'Kitchen Ready', icon: CheckCircle2 },
     { status: 'out_for_delivery', label: 'Out for Delivery', icon: MapPin },
     { status: 'delivered', label: 'Delivered', icon: CheckCircle2 },
     { status: 'cancelled', label: 'Cancelled', icon: CheckCircle2 }, // Add cancelled step for logic

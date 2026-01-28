@@ -81,15 +81,15 @@ export default function AdminDashboard() {
     const [filterLabel, setFilterLabel] = useState("Last 30 Days")
 
     // --- Fetchers ---
-    const fetchOrders = async () => {
-        setLoading(true)
+    const fetchOrders = async (showLoading = true) => {
+        if (showLoading) setLoading(true)
         const { data } = await supabase
             .from('orders')
             .select(`*, order_items (quantity, price_at_order, menu_items (name))`)
             .order('created_at', { ascending: false })
 
         if (data) setOrders(data as any)
-        setLoading(false)
+        if (showLoading) setLoading(false)
     }
 
     const fetchMenu = async () => {
@@ -127,7 +127,21 @@ export default function AdminDashboard() {
 
         // Realtime Subscriptions
         const orderSub = supabase.channel('admin-dashboard-orders')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOrders)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+                if (payload.eventType === 'INSERT') {
+                    // New order needs full join data, so we fetch
+                    fetchOrders(false)
+                } else if (payload.eventType === 'UPDATE') {
+                    // Update existing order in place to avoid race conditions with optimistic updates
+                    setOrders((prev) => prev.map((order) =>
+                        order.id === payload.new.id
+                            ? { ...order, ...payload.new }
+                            : order
+                    ))
+                } else if (payload.eventType === 'DELETE') {
+                    setOrders((prev) => prev.filter((order) => order.id !== payload.old.id))
+                }
+            })
             .subscribe()
 
         return () => { supabase.removeChannel(orderSub) }
