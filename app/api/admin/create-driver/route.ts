@@ -9,6 +9,27 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
         }
 
+        const supabaseUser = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        )
+
+        // 0. Verify requester is Admin
+        const authHeader = req.headers.get('Authorization')
+        const token = authHeader?.replace('Bearer ', '')
+
+        if (!token) {
+            return NextResponse.json({ error: 'Unauthorized: Missing token' }, { status: 401 })
+        }
+
+        const { data: { user: requester }, error: userError } = await supabaseUser.auth.getUser(token)
+
+        if (userError || !requester) {
+            return NextResponse.json({ error: 'Unauthorized: Invalid token' }, { status: 401 })
+        }
+
+        // Check Access Control (Role = Admin) - We need a Service Role client to check profile securely 
+        // OR rely on RLS if we used standard client, but here we want explicit check before logic.
         const supabaseAdmin = createClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -19,6 +40,16 @@ export async function POST(req: Request) {
                 }
             }
         )
+
+        const { data: profile } = await supabaseAdmin
+            .from('profiles')
+            .select('role')
+            .eq('id', requester.id)
+            .single()
+
+        if (!profile || profile.role !== 'admin') {
+            return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 })
+        }
 
         // 1. Create User
         const { data: user, error: createError } = await supabaseAdmin.auth.admin.createUser({
