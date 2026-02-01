@@ -72,6 +72,8 @@ async function createOrPromoteAdmin() {
             console.error("Failed to update profile:", updateError.message);
         } else {
             console.log("✅ Success! User promoted to Admin.");
+            console.log("\n⚠️  IMPORTANT SECURITY ACTION REQUIRED:");
+            console.log("Please ensure this user logs in and enables Two-Factor Authentication (2FA) via Dashboard > Settings.");
         }
     } else {
         console.log("User not found. Creating new Admin account...");
@@ -104,6 +106,10 @@ async function createOrPromoteAdmin() {
                 console.log("✅ Success! New Admin account created.");
             }
         }
+
+        console.log("\n⚠️  IMPORTANT SECURITY ACTION REQUIRED:");
+        console.log("Please log in immediately at /login and go to Dashboard > Settings.");
+        console.log("Enable Two-Factor Authentication (2FA) to secure this admin account.");
     }
 }
 

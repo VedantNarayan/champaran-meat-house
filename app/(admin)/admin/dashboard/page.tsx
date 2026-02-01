@@ -6,7 +6,7 @@ import { useEffect, useState, useMemo } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { RefreshCcw, LayoutDashboard, UtensilsCrossed, Calendar as CalendarIcon, Image as ImageIcon, Trash2, ExternalLink, Plus, Minus, ArrowUp, ArrowDown, User, Edit, Search, Loader2, Save, X } from "lucide-react"
+import { RefreshCcw, LayoutDashboard, UtensilsCrossed, Calendar as CalendarIcon, Image as ImageIcon, Trash2, ExternalLink, Plus, Minus, ArrowUp, ArrowDown, User, Edit, Search, Loader2, Save, X, Settings } from "lucide-react"
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend
@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
+import { MfaSettings } from "@/components/admin/MfaSettings"
 
 // --- Types ---
 interface Order {
@@ -67,8 +68,8 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
 export default function AdminDashboard() {
     const searchParams = useSearchParams()
-    const initialTab = searchParams.get('tab') as 'overview' | 'menu' | 'banners' | 'drivers' | 'gallery' | null
-    const [activeTab, setActiveTab] = useState<'overview' | 'menu' | 'banners' | 'drivers' | 'gallery'>(initialTab || 'overview')
+    const initialTab = searchParams.get('tab') as 'overview' | 'menu' | 'banners' | 'drivers' | 'gallery' | 'settings' | null
+    const [activeTab, setActiveTab] = useState<'overview' | 'menu' | 'banners' | 'drivers' | 'gallery' | 'settings'>(initialTab || 'overview')
 
 
     // --- Data State ---
@@ -490,6 +491,13 @@ export default function AdminDashboard() {
                             }`}
                     >
                         <ImageIcon size={16} /> Gallery
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('settings')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-white shadow text-primary' : 'text-muted-foreground hover:text-primary'
+                            }`}
+                    >
+                        <Settings size={16} /> Settings
                     </button>
                 </div>
             </div>
@@ -1039,6 +1047,14 @@ export default function AdminDashboard() {
                             </div>
                         ))}
                     </div>
+                </div>
+            )}
+
+            {/* Content: Settings Tab */}
+            {activeTab === 'settings' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <h2 className="text-xl font-bold">Admin Settings</h2>
+                    <MfaSettings />
                 </div>
             )}
         </div>
