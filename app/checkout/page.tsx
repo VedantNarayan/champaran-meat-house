@@ -327,7 +327,8 @@ export default function CheckoutPage() {
                                 <input
                                     name="phone" required type="tel"
                                     maxLength={10}
-                                    pattern="[0-9]{10}"
+                                    minLength={10}
+                                    pattern="\d{10}"
                                     title="Please enter a valid 10-digit phone number"
                                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                                     placeholder="9876543210"
@@ -367,7 +368,9 @@ export default function CheckoutPage() {
                                         <input
                                             name="alternatePhone" type="tel"
                                             maxLength={10}
-                                            pattern="[0-9]{10}"
+                                            minLength={10}
+                                            pattern="\d{10}"
+                                            title="Please enter a valid 10-digit phone number"
                                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                                             placeholder="Alternate Number"
                                             value={formData.alternatePhone}

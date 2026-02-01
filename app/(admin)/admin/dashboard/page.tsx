@@ -6,7 +6,7 @@ import { useEffect, useState, useMemo } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { RefreshCcw, LayoutDashboard, UtensilsCrossed, Calendar as CalendarIcon, Image as ImageIcon, Trash2, ExternalLink, Plus, Minus, ArrowUp, ArrowDown } from "lucide-react"
+import { RefreshCcw, LayoutDashboard, UtensilsCrossed, Calendar as CalendarIcon, Image as ImageIcon, Trash2, ExternalLink, Plus, Minus, ArrowUp, ArrowDown, User, Edit, Search, Loader2, Save, X } from "lucide-react"
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend
@@ -14,6 +14,10 @@ import {
 import { startOfDay, endOfDay, subDays, subMonths, subYears, isWithinInterval, parseISO, format } from "date-fns"
 import Image from "next/image"
 import { uploadImage } from "@/lib/storage"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { toast } from "sonner"
 
 // --- Types ---
 interface Order {
@@ -43,21 +47,40 @@ interface Banner {
     sort_order: number
 }
 
+interface GalleryImage {
+    id: string
+    image_url: string
+    alt_text: string | null
+    is_active: boolean
+    sort_order: number
+}
+
+interface DriverProfile {
+    id: string
+    full_name: string | null
+    email?: string // Join from auth if possible, or just profile fields
+    phone_number: string | null
+    role: string
+}
+
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
 export default function AdminDashboard() {
     const searchParams = useSearchParams()
-    const initialTab = searchParams.get('tab') as 'overview' | 'menu' | 'banners' | null
-    const [activeTab, setActiveTab] = useState<'overview' | 'menu' | 'banners'>(initialTab || 'overview')
+    const initialTab = searchParams.get('tab') as 'overview' | 'menu' | 'banners' | 'drivers' | 'gallery' | null
+    const [activeTab, setActiveTab] = useState<'overview' | 'menu' | 'banners' | 'drivers' | 'gallery'>(initialTab || 'overview')
+
 
     // --- Data State ---
     const [orders, setOrders] = useState<Order[]>([])
     const [menuItems, setMenuItems] = useState<MenuItem[]>([])
     const [banners, setBanners] = useState<Banner[]>([])
     const [categories, setCategories] = useState<any[]>([]) // Should ideally type this
+    const [drivers, setDrivers] = useState<DriverProfile[]>([])
     const [loading, setLoading] = useState(true)
     const [menuLoading, setMenuLoading] = useState(false)
     const [bannerLoading, setBannerLoading] = useState(false)
+    const [driverLoading, setDriverLoading] = useState(false)
 
     // --- Form State ---
     const [newBanner, setNewBanner] = useState({ image_url: '', link: '' })
@@ -72,6 +95,9 @@ export default function AdminDashboard() {
         variants: [] as { size: string, price: string }[]
     })
     const [isAddingItem, setIsAddingItem] = useState(false) // Toggle form
+    const [isManagingCategories, setIsManagingCategories] = useState(false)
+    const [newCategoryName, setNewCategoryName] = useState('')
+    const [editingCategory, setEditingCategory] = useState<{ id: number, name: string } | null>(null)
 
     // --- Filter State ---
     const [dateRange, setDateRange] = useState({
@@ -79,6 +105,15 @@ export default function AdminDashboard() {
         end: format(new Date(), 'yyyy-MM-dd')
     })
     const [filterLabel, setFilterLabel] = useState("Last 30 Days")
+    // --- Driver Form State ---
+    const [isDriverModalOpen, setIsDriverModalOpen] = useState(false)
+    const [editingDriver, setEditingDriver] = useState<DriverProfile | null>(null)
+    const [driverFormData, setDriverFormData] = useState({
+        full_name: '',
+        email: '',
+        password: '',
+        phone_number: ''
+    })
 
     // --- Fetchers ---
     const fetchOrders = async (showLoading = true) => {
@@ -115,8 +150,20 @@ export default function AdminDashboard() {
     }
 
     const fetchCategories = async () => {
-        const { data } = await supabase.from('categories').select('*').eq('is_active', true)
+        const { data } = await supabase.from('categories').select('*').order('sort_order', { ascending: true })
         if (data) setCategories(data)
+    }
+
+    const fetchDrivers = async () => {
+        setDriverLoading(true)
+        const { data } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('role', 'driver')
+            .order('created_at', { ascending: false })
+
+        if (data) setDrivers(data as any)
+        setDriverLoading(false)
     }
 
     useEffect(() => {
@@ -124,6 +171,7 @@ export default function AdminDashboard() {
         fetchMenu() // Fetch menu initially too
         fetchBanners()
         fetchCategories()
+        fetchDrivers()
 
         // Realtime Subscriptions
         const orderSub = supabase.channel('admin-dashboard-orders')
@@ -276,6 +324,78 @@ export default function AdminDashboard() {
         }
     }
 
+    // --- Category Actions ---
+    const handleAddCategory = async () => {
+        if (!newCategoryName.trim()) return alert("Category name is required")
+        const { error } = await supabase.from('categories').insert([{
+            name: newCategoryName,
+            sort_order: categories.length + 1,
+            is_active: true
+        }])
+        if (error) alert(error.message)
+        else {
+            setNewCategoryName('')
+            fetchCategories()
+        }
+    }
+
+    const handleUpdateCategory = async () => {
+        if (!editingCategory || !editingCategory.name.trim()) return
+        const { error } = await supabase.from('categories').update({ name: editingCategory.name }).eq('id', editingCategory.id)
+        if (error) alert(error.message)
+        else {
+            setEditingCategory(null)
+            fetchCategories()
+        }
+    }
+
+    const handleDeleteCategory = async (id: number) => {
+        // 1. Check if category is used
+        // Ensure id mismatch isn't the issue (num vs string)
+        const hasItems = menuItems.some(item => Number(item.category_id) === Number(id))
+
+        if (hasItems) {
+            toast.error("Category is not empty, can't be deleted")
+            return
+        }
+
+        if (!confirm("Are you sure you want to delete this category?")) return
+
+        const { error } = await supabase.from('categories').delete().eq('id', id)
+        if (error) {
+            console.error("Delete category error:", JSON.stringify(error, null, 2))
+            toast.error(error.message || "Failed to delete category")
+        } else {
+            toast.success("Category deleted successfully")
+            fetchCategories()
+        }
+    }
+
+    const moveCategory = async (id: number, direction: 'up' | 'down') => {
+        const index = categories.findIndex(c => c.id === id)
+        if (index === -1) return
+        if (direction === 'up' && index === 0) return
+        if (direction === 'down' && index === categories.length - 1) return
+
+        const targetIndex = direction === 'up' ? index - 1 : index + 1
+        const currentCat = categories[index]
+        const targetCat = categories[targetIndex]
+
+        // Swap sort_order
+        const currentOrder = currentCat.sort_order
+        const targetOrder = targetCat.sort_order
+
+        const newCats = [...categories]
+        newCats[index] = { ...currentCat, sort_order: targetOrder }
+        newCats[targetIndex] = { ...targetCat, sort_order: currentOrder }
+        newCats.sort((a, b) => a.sort_order - b.sort_order)
+        setCategories(newCats)
+
+        const { error: err1 } = await supabase.from('categories').update({ sort_order: targetOrder }).eq('id', currentCat.id)
+        const { error: err2 } = await supabase.from('categories').update({ sort_order: currentOrder }).eq('id', targetCat.id)
+        if (err1 || err2) fetchCategories()
+    }
+
     // --- Date Filter Logic ---
     const setPreset = (days: number | 'year' | '6months' | 'today') => {
         const end = new Date()
@@ -363,6 +483,13 @@ export default function AdminDashboard() {
                             }`}
                     >
                         <ImageIcon size={16} /> Banners
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('gallery')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'gallery' ? 'bg-white shadow text-primary' : 'text-muted-foreground hover:text-primary'
+                            }`}
+                    >
+                        <ImageIcon size={16} /> Gallery
                     </button>
                 </div>
             </div>
@@ -490,128 +617,331 @@ export default function AdminDashboard() {
                 </div>
             )}
 
+            {/* Content: Drivers Tab */}
+            {activeTab === 'drivers' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold">Driver Management</h2>
+                        <Button onClick={() => {
+                            setEditingDriver(null)
+                            setDriverFormData({ full_name: '', email: '', password: '', phone_number: '' })
+                            setIsDriverModalOpen(true)
+                        }}>
+                            <Plus className="mr-2 h-4 w-4" /> Add Driver
+                        </Button>
+                    </div>
+
+                    <Card>
+                        <CardHeader><CardTitle>Registered Drivers</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="rounded-md border">
+                                <table className="w-full caption-bottom text-sm text-left">
+                                    <thead className="[&_tr]:border-b">
+                                        <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                                            <th className="h-12 px-4 align-middle font-medium text-muted-foreground">Name</th>
+                                            <th className="h-12 px-4 align-middle font-medium text-muted-foreground">Phone</th>
+                                            <th className="h-12 px-4 align-middle font-medium text-muted-foreground">Role</th>
+                                            <th className="h-12 px-4 align-middle font-medium text-muted-foreground text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="[&_tr:last-child]:border-0">
+                                        {drivers.map((driver) => (
+                                            <tr key={driver.id} className="border-b transition-colors hover:bg-muted/50">
+                                                <td className="p-4 align-middle font-medium">{driver.full_name || 'N/A'}</td>
+                                                <td className="p-4 align-middle">{driver.phone_number || 'N/A'}</td>
+                                                <td className="p-4 align-middle capitalize">{driver.role}</td>
+                                                <td className="p-4 align-middle text-right">
+                                                    <Button variant="ghost" size="icon" onClick={() => {
+                                                        setEditingDriver(driver)
+                                                        setDriverFormData({
+                                                            full_name: driver.full_name || '',
+                                                            phone_number: driver.phone_number || '',
+                                                            email: '', // Can't edit email easily solely via profile
+                                                            password: ''
+                                                        })
+                                                        setIsDriverModalOpen(true)
+                                                    }}>
+                                                        <Edit className="h-4 w-4" />
+                                                    </Button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {drivers.length === 0 && (
+                                            <tr>
+                                                <td colSpan={4} className="p-4 text-center text-muted-foreground">No drivers found.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* Driver Modal */}
+                    <Dialog open={isDriverModalOpen} onOpenChange={setIsDriverModalOpen}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>{editingDriver ? 'Edit Driver' : 'Add New Driver'}</DialogTitle>
+                                <DialogDescription>
+                                    {editingDriver ? 'Update driver details.' : 'Create a new driver account. They will use these credentials to login.'}
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4 py-4">
+                                <div className="space-y-2">
+                                    <Label>Full Name</Label>
+                                    <Input
+                                        value={driverFormData.full_name}
+                                        onChange={(e) => setDriverFormData({ ...driverFormData, full_name: e.target.value })}
+                                        placeholder="John Doe"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Phone Number</Label>
+                                    <Input
+                                        value={driverFormData.phone_number}
+                                        maxLength={10}
+                                        minLength={10}
+                                        type="tel"
+                                        pattern="\d{10}"
+                                        title="Phone number must be exactly 10 digits"
+                                        onChange={(e) => {
+                                            const val = e.target.value.replace(/\D/g, '');
+                                            if (val.length <= 10) setDriverFormData({ ...driverFormData, phone_number: val });
+                                        }}
+                                        placeholder="9876543210"
+                                    />
+                                </div>
+                                {!editingDriver && (
+                                    <>
+                                        <div className="space-y-2">
+                                            <Label>Email</Label>
+                                            <Input
+                                                value={driverFormData.email}
+                                                onChange={(e) => setDriverFormData({ ...driverFormData, email: e.target.value })}
+                                                placeholder="driver@example.com"
+                                                type="email"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Password</Label>
+                                            <Input
+                                                value={driverFormData.password}
+                                                onChange={(e) => setDriverFormData({ ...driverFormData, password: e.target.value })}
+                                                placeholder="******"
+                                                type="password"
+                                            />
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setIsDriverModalOpen(false)}>Cancel</Button>
+                                <Button onClick={async () => {
+                                    try {
+                                        setDriverLoading(true)
+                                        if (editingDriver) {
+                                            // Update existing
+                                            const { error } = await supabase
+                                                .from('profiles')
+                                                .update({
+                                                    full_name: driverFormData.full_name,
+                                                    phone_number: driverFormData.phone_number
+                                                })
+                                                .eq('id', editingDriver.id)
+
+                                            if (error) throw error
+                                            toast.success("Driver updated successfully")
+                                        } else {
+                                            // Create new
+                                            const res = await fetch('/api/admin/create-driver', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify(driverFormData)
+                                            })
+
+                                            if (!res.ok) {
+                                                const err = await res.json()
+                                                throw new Error(err.error || "Failed to create driver")
+                                            }
+                                            toast.success("Driver created successfully")
+                                        }
+                                        setIsDriverModalOpen(false)
+                                        fetchDrivers()
+                                    } catch (err: any) {
+                                        toast.error(err.message)
+                                    } finally {
+                                        setDriverLoading(false)
+                                    }
+                                }}>
+                                    {dateRange.start === 'saving' ? <Loader2 className="animate-spin" /> : (editingDriver ? 'Save Changes' : 'Create Account')}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                </div>
+            )}
+
             {/* Content: Menu Manager Tab */}
             {activeTab === 'menu' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold">Menu Management</h2>
-                        <div className="flex gap-2">
-                            <Button onClick={() => setIsAddingItem(!isAddingItem)}>
-                                {isAddingItem ? <><Minus className="mr-2 h-4 w-4" /> Cancel</> : <><Plus className="mr-2 h-4 w-4" /> Add Item</>}
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={fetchMenu} disabled={menuLoading}>
-                                <RefreshCcw className={`mr-2 h-4 w-4 ${menuLoading ? 'animate-spin' : ''}`} /> Refresh
-                            </Button>
-                        </div>
-                    </div>
-
-                    {isAddingItem && (
-                        <Card className="p-6 border-primary/20 bg-primary/5 animate-in slide-in-from-top-2">
-                            <h3 className="font-semibold mb-4">Create New Menu Item</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                <input placeholder="Item Name" className="border p-2 rounded" value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} />
-                                <select className="border p-2 rounded bg-background" value={newItem.category_id} onChange={e => setNewItem({ ...newItem, category_id: e.target.value })}>
-                                    <option value="">Select Category</option>
-                                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                </select>
-                                <input type="number" placeholder="Base Price (₹)" className="border p-2 rounded" value={newItem.price} onChange={e => setNewItem({ ...newItem, price: e.target.value })} />
-                                <div className="flex items-center gap-4 border p-2 rounded bg-background">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input type="checkbox" checked={newItem.is_veg} onChange={e => setNewItem({ ...newItem, is_veg: e.target.checked })} />
-                                        <span>Vegetarian?</span>
-                                    </label>
-                                </div>
+                    {isManagingCategories ? (
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-xl font-bold">Category Management</h2>
+                                <Button variant="outline" onClick={() => setIsManagingCategories(false)}>
+                                    <Minus className="mr-2 h-4 w-4" /> Back to Menu
+                                </Button>
                             </div>
 
-                            <textarea placeholder="Description" className="w-full border p-2 rounded mb-4 text-sm" rows={2} value={newItem.description} onChange={e => setNewItem({ ...newItem, description: e.target.value })} />
-                            <input placeholder="Tags (comma separated, e.g. Spicy, Popular)" className="w-full border p-2 rounded mb-4" value={newItem.tags} onChange={e => setNewItem({ ...newItem, tags: e.target.value })} />
-
-                            {/* Image Upload */}
-                            <div className="mb-4">
-                                <label className="text-xs font-medium mb-1 block">Item Image</label>
-                                <div className="flex gap-2 items-center">
-                                    <input type="file" accept="image/*" className="text-sm" onChange={async (e) => {
-                                        const file = e.target.files?.[0]
-                                        if (file) {
-                                            const url = await uploadImage(file, 'menu')
-                                            if (url) setNewItem({ ...newItem, image_url: url })
-                                        }
-                                    }} />
-                                    {newItem.image_url && <img src={newItem.image_url} className="h-10 w-10 object-cover rounded border" />}
+                            <Card className="p-4">
+                                <div className="flex gap-4">
+                                    <Input
+                                        placeholder="New Category Name"
+                                        value={newCategoryName}
+                                        onChange={(e) => setNewCategoryName(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+                                    />
+                                    <Button onClick={handleAddCategory}><Plus className="mr-2 h-4 w-4" /> Add Category</Button>
                                 </div>
-                            </div>
+                            </Card>
 
-                            {/* Variants */}
-                            <div className="mb-4">
-                                <div className="flex justify-between items-center mb-2">
-                                    <label className="text-sm font-medium">Variants (Optional)</label>
-                                    <Button size="sm" variant="ghost" onClick={() => setNewItem(prev => ({ ...prev, variants: [...prev.variants, { size: '', price: '' }] }))}>+ Add Variant</Button>
-                                </div>
-                                {newItem.variants.map((v, idx) => (
-                                    <div key={idx} className="flex gap-2 mb-2">
-                                        <input placeholder="Size (e.g. Half, Full)" className="flex-1 border p-1 rounded text-sm" value={v.size} onChange={e => {
-                                            const newV = [...newItem.variants]; newV[idx].size = e.target.value; setNewItem({ ...newItem, variants: newV })
-                                        }} />
-                                        <input type="number" placeholder="Price" className="w-24 border p-1 rounded text-sm" value={v.price} onChange={e => {
-                                            const newV = [...newItem.variants]; newV[idx].price = e.target.value; setNewItem({ ...newItem, variants: newV })
-                                        }} />
-                                        <Button size="sm" variant="ghost" className="text-red-500" onClick={() => {
-                                            setNewItem(prev => ({ ...prev, variants: prev.variants.filter((_, i) => i !== idx) }))
-                                        }}><Trash2 size={14} /></Button>
-                                    </div>
+                            <div className="space-y-2">
+                                {categories.map((cat, idx) => (
+                                    <Card key={cat.id} className="p-4 flex items-center justify-between">
+                                        {editingCategory?.id === cat.id ? (
+                                            <div className="flex gap-2 flex-1 mr-4">
+                                                <Input
+                                                    value={editingCategory?.name || ''}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value
+                                                        setEditingCategory(p => p ? { ...p, name: val } : null)
+                                                    }}
+                                                    onKeyDown={(e) => e.key === 'Enter' && handleUpdateCategory()}
+                                                />
+                                                <Button size="sm" variant="ghost" className="text-green-600" onClick={handleUpdateCategory}><Save size={16} /></Button>
+                                                <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setEditingCategory(null)}><X size={16} /></Button>
+                                            </div>
+                                        ) : (
+                                            <span className="font-medium flex-1 text-lg">{cat.name}</span>
+                                        )}
+
+                                        <div className="flex items-center gap-2">
+                                            <Button size="icon" variant="ghost" disabled={idx === 0} onClick={() => moveCategory(cat.id, 'up')}><ArrowUp className="h-4 w-4 text-muted-foreground" /></Button>
+                                            <Button size="icon" variant="ghost" disabled={idx === categories.length - 1} onClick={() => moveCategory(cat.id, 'down')}><ArrowDown className="h-4 w-4 text-muted-foreground" /></Button>
+                                            {!editingCategory && (
+                                                <Button size="icon" variant="ghost" onClick={() => setEditingCategory({ id: cat.id, name: cat.name })}><Edit className="h-4 w-4 text-blue-500" /></Button>
+                                            )}
+                                            <Button size="icon" variant="ghost" className="hover:bg-red-50" onClick={() => handleDeleteCategory(cat.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                                        </div>
+                                    </Card>
                                 ))}
                             </div>
-
-                            <Button onClick={handleAddItem} className="w-full">Create Item</Button>
-                        </Card>
-                    )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {menuItems.map((item) => (
-                            <Card key={item.id} className={`overflow-hidden transition-all ${!item.is_available ? 'opacity-60 grayscale bg-muted' : 'hover:shadow-lg'}`}>
-                                <div className="aspect-video relative w-full">
-                                    <Image src={item.image_url || '/placeholder.jpg'} alt={item.name} fill className="object-cover" />
-                                    {!item.is_available && (
-                                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white font-bold text-lg uppercase tracking-widest">
-                                            Out of Stock
-                                        </div>
-                                    )}
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-xl font-bold">Menu Items</h2>
+                                <div className="flex gap-2">
+                                    <Button variant="outline" onClick={() => setIsManagingCategories(true)}>
+                                        Manage Categories
+                                    </Button>
+                                    <Button onClick={() => setIsAddingItem(!isAddingItem)}>
+                                        {isAddingItem ? <Minus className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+                                        {isAddingItem ? "Cancel" : "Add New Item"}
+                                    </Button>
                                 </div>
-                                <CardContent className="p-4 space-y-3">
-                                    <div className="flex justify-between items-start">
+                            </div>
+
+                            {/* Add Item Form */}
+                            {isAddingItem && (
+                                <Card className="p-4 border-2 border-primary/20">
+                                    <h3 className="font-bold mb-4">Add New Item</h3>
+                                    <div className="grid gap-4 md:grid-cols-2">
                                         <div>
-                                            <h3 className="font-semibold text-lg">{item.name}</h3>
-                                            <p className="text-muted-foreground">₹{item.price}</p>
+                                            <label className="text-sm font-medium">Name</label>
+                                            <input className="w-full p-2 border rounded" value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} />
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium">Price (₹)</label>
+                                            <input type="number" className="w-full p-2 border rounded" value={newItem.price} onChange={e => setNewItem({ ...newItem, price: e.target.value })} />
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium">Category</label>
+                                            <select className="w-full p-2 border rounded" value={newItem.category_id} onChange={e => setNewItem({ ...newItem, category_id: e.target.value })}>
+                                                <option value="">Select Category</option>
+                                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium">Image URL</label>
+                                            <div className="flex gap-2">
+                                                <input className="w-full p-2 border rounded" value={newItem.image_url} readOnly placeholder="Upload image..." />
+                                                <label className="cursor-pointer bg-secondary px-3 py-2 rounded flex items-center">
+                                                    <ImageIcon size={16} />
+                                                    <input type="file" className="hidden" onChange={async (e) => {
+                                                        const file = e.target.files?.[0]
+                                                        if (file) {
+                                                            const url = await uploadImage(file, 'menu')
+                                                            if (url) setNewItem({ ...newItem, image_url: url })
+                                                        }
+                                                    }} />
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
-
-                                    <div className="flex items-center justify-between pt-2 border-t">
-                                        <span className={`text-sm font-medium ${item.is_available ? 'text-green-600' : 'text-red-500'}`}>
-                                            {item.is_available ? 'Available' : 'Unavailable'}
-                                        </span>
-                                        <label className="relative inline-flex items-center cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                className="sr-only peer"
-                                                checked={item.is_available}
-                                                onChange={() => toggleAvailability(item.id, item.is_available)}
-                                            />
-                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                        </label>
+                                    <div className="mt-4 flex justify-end gap-2">
+                                        <Button variant="ghost" onClick={() => setIsAddingItem(false)}>Cancel</Button>
+                                        <Button onClick={handleAddItem}>Save Item</Button>
                                     </div>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
+                                </Card>
+                            )}
+
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                                {menuItems.map(item => (
+                                    <Card key={item.id} className="relative overflow-hidden group">
+                                        <div className="absolute top-2 right-2 z-10 flex gap-2">
+                                            <button
+                                                onClick={() => toggleAvailability(item.id, item.is_available)}
+                                                className={`px-2 py-1 rounded text-xs font-semibold shadow-sm transition-all ${item.is_available ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
+                                            >
+                                                {item.is_available ? 'In Stock' : 'Sold Out'}
+                                            </button>
+                                        </div>
+                                        <div className="aspect-video w-full overflow-hidden bg-muted">
+                                            {item.image_url ? (
+                                                <img src={item.image_url} alt={item.name} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                                            ) : (
+                                                <div className="flex items-center justify-center w-full h-full text-muted-foreground"><ImageIcon size={24} /></div>
+                                            )}
+                                        </div>
+                                        <CardContent className="p-4">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <h3 className="font-bold">{item.name}</h3>
+                                                    <p className="text-xs text-muted-foreground">{categories.find(c => c.id === item.category_id)?.name || 'Uncategorized'}</p>
+                                                </div>
+                                                <div className="font-bold text-primary">₹{item.price}</div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
+            )}
+
+            {/* Content: Gallery Tab */}
+            {activeTab === 'gallery' && (
+                <GalleryManager />
             )}
 
             {/* Content: Banner Manager Tab */}
             {activeTab === 'banners' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold">Banner Management</h2>
-                        <Button variant="outline" size="sm" onClick={fetchBanners} disabled={bannerLoading}>
+                        <h2 className="text-xl font-bold">Homepage Banners</h2>
+                        <Button variant="outline" size="sm" onClick={() => fetchBanners()} disabled={bannerLoading}>
                             <RefreshCcw className={`mr-2 h-4 w-4 ${bannerLoading ? 'animate-spin' : ''}`} /> Refresh
                         </Button>
                     </div>
@@ -711,6 +1041,131 @@ export default function AdminDashboard() {
                     </div>
                 </div>
             )}
+        </div>
+    )
+}
+
+function GalleryManager() {
+    const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([])
+    const [uploading, setUploading] = useState(false)
+
+    const fetchGallery = async () => {
+        const { data, error } = await supabase
+            .from('gallery_images')
+            .select('*')
+            .order('sort_order', { ascending: true })
+        if (data) setGalleryImages(data)
+        if (error) console.error("Error fetching gallery:", error)
+    }
+
+    useEffect(() => {
+        fetchGallery()
+    }, [])
+
+    const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files
+        if (!files || files.length === 0) return
+
+        setUploading(true)
+        let successCount = 0
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i]
+            const url = await uploadImage(file, 'gallery')
+            if (url) {
+                const { error } = await supabase.from('gallery_images').insert([{
+                    image_url: url,
+                    is_active: true,
+                    // Use length + i + 1 to keep order for batch
+                    sort_order: galleryImages.length + i + 1
+                }])
+                if (!error) successCount++
+            }
+        }
+
+        if (successCount > 0) {
+            toast.success(`${successCount} image(s) added`)
+            fetchGallery()
+        } else {
+            toast.error("Failed to upload images")
+        }
+        setUploading(false)
+        // Reset input
+        e.target.value = ''
+    }
+
+    const handleDelete = async (id: string) => {
+        if (!confirm("Delete this image?")) return
+        const { error } = await supabase.from('gallery_images').delete().eq('id', id)
+        if (error) toast.error("Failed to delete")
+        else {
+            toast.success("Image deleted")
+            fetchGallery()
+        }
+    }
+
+    const handleMove = async (id: string, direction: 'up' | 'down') => {
+        const index = galleryImages.findIndex(img => img.id === id)
+        if (index === -1) return
+        if (direction === 'up' && index === 0) return
+        if (direction === 'down' && index === galleryImages.length - 1) return
+
+        const targetIndex = direction === 'up' ? index - 1 : index + 1
+        const currentImg = galleryImages[index]
+        const targetImg = galleryImages[targetIndex]
+
+        // Swap sort_order
+        const currentOrder = currentImg.sort_order
+        const targetOrder = targetImg.sort_order
+
+        // Optimistic
+        const newImages = [...galleryImages]
+        newImages[index] = { ...currentImg, sort_order: targetOrder }
+        newImages[targetIndex] = { ...targetImg, sort_order: currentOrder }
+        newImages.sort((a, b) => a.sort_order - b.sort_order)
+        setGalleryImages(newImages)
+
+        // DB Updates
+        await supabase.from('gallery_images').update({ sort_order: targetOrder }).eq('id', currentImg.id)
+        await supabase.from('gallery_images').update({ sort_order: currentOrder }).eq('id', targetImg.id)
+    }
+
+    return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold">Restaurant Gallery</h2>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground mr-2">
+                        {galleryImages.length} images
+                    </span>
+                    <label className={`cursor-pointer inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 ${uploading ? 'opacity-50' : ''}`}>
+                        {uploading ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+                        {uploading ? 'Uploading...' : 'Add Images'}
+                        <input type="file" className="hidden" accept="image/*" multiple onChange={handleUpload} disabled={uploading} />
+                    </label>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {galleryImages.map((img, index) => (
+                    <Card key={img.id} className="relative group overflow-hidden aspect-square">
+                        <img src={img.image_url} alt="Gallery" className="w-full h-full object-cover" />
+                        <div className="absolute inset-x-0 bottom-0 bg-black/60 p-2 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex gap-1">
+                                <Button size="icon" variant="ghost" className="h-8 w-8 text-white hover:bg-white/20" disabled={index === 0} onClick={() => handleMove(img.id, 'up')}><ArrowUp className="h-4 w-4" /></Button>
+                                <Button size="icon" variant="ghost" className="h-8 w-8 text-white hover:bg-white/20" disabled={index === galleryImages.length - 1} onClick={() => handleMove(img.id, 'down')}><ArrowDown className="h-4 w-4" /></Button>
+                            </div>
+                            <Button size="icon" variant="destructive" className="h-8 w-8" onClick={() => handleDelete(img.id)}><Trash2 className="h-4 w-4" /></Button>
+                        </div>
+                    </Card>
+                ))}
+                {galleryImages.length === 0 && (
+                    <div className="col-span-full py-12 text-center border-2 border-dashed rounded-lg bg-muted/50">
+                        <ImageIcon className="mx-auto h-12 w-12 text-muted-foreground opacity-50" />
+                        <p className="mt-2 text-muted-foreground">No images in gallery yet.</p>
+                    </div>
+                )}
+            </div>
         </div>
     )
 }

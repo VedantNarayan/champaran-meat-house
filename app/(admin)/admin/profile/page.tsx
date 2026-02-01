@@ -85,8 +85,8 @@ export default function AdminProfilePage() {
                             <Button variant="outline" onClick={() => router.push('/admin/dashboard')}>
                                 Dashboard
                             </Button>
-                            <Button variant="outline" onClick={() => router.push('/admin/dashboard?tab=menu')}>
-                                Menu Mgmt
+                            <Button variant="outline" onClick={() => router.push('/admin/dashboard?tab=drivers')}>
+                                Drivers
                             </Button>
                             <Button variant="outline" onClick={() => router.push('/admin/orders')}>
                                 Orders

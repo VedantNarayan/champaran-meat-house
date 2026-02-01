@@ -3,7 +3,7 @@
 import * as React from "react"
 import { supabase } from "@/lib/supabaseClient"
 import { Button } from "@/components/ui/button"
-import { ArrowRight } from "lucide-react"
+import { ArrowRight, ArrowLeft } from "lucide-react"
 
 interface Banner {
     id: string
@@ -94,6 +94,24 @@ export function BannerCarousel() {
                     </div>
                 </div>
             ))}
+
+            {/* Manual Controls */}
+            <Button
+                variant="ghost"
+                size="icon"
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-white bg-black/20 hover:bg-black/40 rounded-full h-8 w-8 md:h-10 md:w-10 opacity-0 group-hover:opacity-100 transition-opacity z-20 backdrop-blur-sm"
+                onClick={() => setCurrentIndex((prev) => (prev - 1 + banners.length) % banners.length)}
+            >
+                <ArrowLeft className="h-4 w-4 md:h-6 md:w-6" />
+            </Button>
+            <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-white bg-black/20 hover:bg-black/40 rounded-full h-8 w-8 md:h-10 md:w-10 opacity-0 group-hover:opacity-100 transition-opacity z-20 backdrop-blur-sm"
+                onClick={() => setCurrentIndex((prev) => (prev + 1) % banners.length)}
+            >
+                <ArrowRight className="h-4 w-4 md:h-6 md:w-6" />
+            </Button>
 
             {/* Indicators */}
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">

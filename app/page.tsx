@@ -4,7 +4,8 @@ import { useEffect, useState } from "react"
 import { Navbar } from "@/components/layout/Navbar"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, Minus } from "lucide-react"
+import { Plus, Minus, Search } from "lucide-react"
+import { Input } from "@/components/ui/input"
 import { useCart } from "@/lib/cart-context"
 import { supabase } from "@/lib/supabaseClient"
 import { BannerCarousel } from "@/components/home/BannerCarousel"
@@ -41,6 +42,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState<number | 'all'>('all')
   const [filterType, setFilterType] = useState<'all' | 'veg' | 'non-veg'>('all')
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -78,6 +80,12 @@ export default function Home() {
     // 2. Veg/Non-Veg Filter
     if (filterType === 'veg' && item.is_veg === false) return false
     if (filterType === 'non-veg' && item.is_veg === true) return false
+
+    // 3. Search Filter
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      return item.name.toLowerCase().includes(q) || item.description.toLowerCase().includes(q)
+    }
 
     return true
   })
@@ -139,11 +147,23 @@ export default function Home() {
             ))}
           </div>
 
-          {/* Veg/Non-Veg Filter */}
-          <VegNonVegFilter
-            currentFilter={filterType}
-            onFilterChange={setFilterType}
-          />
+          {/* Search & Filter */}
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <div className="relative flex-1 md:w-60">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search menu..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 h-8 text-xs rounded-full bg-secondary/10 border-none"
+              />
+            </div>
+
+            <VegNonVegFilter
+              currentFilter={filterType}
+              onFilterChange={setFilterType}
+            />
+          </div>
         </div>
 
         {/* Product Grid */}

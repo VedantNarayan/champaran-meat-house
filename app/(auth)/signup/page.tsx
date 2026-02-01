@@ -76,12 +76,17 @@ export default function SignupPage() {
                                 <label className="sr-only">Phone Number</label>
                                 <input
                                     name="phone"
-                                    type="tel"
-                                    required
+                                    maxLength={10}
+                                    minLength={10}
+                                    pattern="\d{10}"
+                                    title="Phone number must be exactly 10 digits"
                                     className="appearance-none rounded-md relative block w-full px-3 py-2 border border-input bg-background placeholder-muted-foreground text-foreground focus:outline-none focus:ring-ring focus:border-ring focus:z-10 sm:text-sm"
                                     placeholder="Phone Number"
                                     value={formData.phone}
-                                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                    onChange={(e) => {
+                                        const val = e.target.value.replace(/\D/g, '');
+                                        if (val.length <= 10) setFormData({ ...formData, phone: val });
+                                    }}
                                 />
                             </div>
                             <div>

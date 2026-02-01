@@ -231,8 +231,15 @@ export default function AccountPage() {
                                         <Input
                                             id="phone"
                                             value={editForm.phone_number}
-                                            onChange={(e) => setEditForm({ ...editForm, phone_number: e.target.value })}
+                                            maxLength={10}
+                                            minLength={10}
                                             type="tel"
+                                            pattern="\d{10}"
+                                            title="Phone number must be exactly 10 digits"
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/\D/g, '');
+                                                if (val.length <= 10) setEditForm({ ...editForm, phone_number: val });
+                                            }}
                                         />
                                     </div>
                                 </div>
@@ -292,9 +299,15 @@ export default function AccountPage() {
                                         <Label>Phone Number</Label>
                                         <Input
                                             value={newAddress.phone_number}
-                                            onChange={(e) => setNewAddress({ ...newAddress, phone_number: e.target.value })}
-                                            placeholder="9876543210"
                                             maxLength={10}
+                                            minLength={10}
+                                            pattern="\d{10}"
+                                            title="Phone number must be exactly 10 digits"
+                                            placeholder="9876543210"
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/\D/g, '');
+                                                if (val.length <= 10) setNewAddress({ ...newAddress, phone_number: val });
+                                            }}
                                         />
                                     </div>
                                     <div className="space-y-2">

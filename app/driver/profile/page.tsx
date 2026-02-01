@@ -208,7 +208,15 @@ export default function DriverProfilePage() {
                                             <Input
                                                 id="phone"
                                                 value={formData.phone_number}
-                                                onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
+                                                maxLength={10}
+                                                minLength={10}
+                                                type="tel"
+                                                pattern="\d{10}"
+                                                title="Phone number must be exactly 10 digits"
+                                                onChange={(e) => {
+                                                    const val = e.target.value.replace(/\D/g, '');
+                                                    if (val.length <= 10) setFormData({ ...formData, phone_number: val });
+                                                }}
                                             />
                                         </div>
                                         <div className="flex gap-2">
