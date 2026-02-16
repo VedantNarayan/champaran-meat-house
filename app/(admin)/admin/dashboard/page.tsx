@@ -6,7 +6,7 @@ import { useEffect, useState, useMemo } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { RefreshCcw, LayoutDashboard, UtensilsCrossed, Calendar as CalendarIcon, Image as ImageIcon, Trash2, ExternalLink, Plus, Minus, ArrowUp, ArrowDown, User, Edit, Search, Loader2, Save, X, Settings } from "lucide-react"
+import { RefreshCcw, LayoutDashboard, UtensilsCrossed, Calendar as CalendarIcon, Image as ImageIcon, Trash2, ExternalLink, Plus, Minus, ArrowUp, ArrowDown, User, Edit, Search, Loader2, Save, X, Settings, ChevronDown, ChevronUp } from "lucide-react"
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend
@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { MfaSettings } from "@/components/admin/MfaSettings"
+import { WhatsAppSettings } from "@/components/admin/WhatsAppSettings"
 
 // --- Types ---
 interface Order {
@@ -38,6 +39,7 @@ interface MenuItem {
     is_available: boolean
     image_url: string
     category_id: number
+    sort_order: number // Added sort_order
 }
 
 interface Banner {
@@ -99,6 +101,7 @@ export default function AdminDashboard() {
     const [isManagingCategories, setIsManagingCategories] = useState(false)
     const [newCategoryName, setNewCategoryName] = useState('')
     const [editingCategory, setEditingCategory] = useState<{ id: number, name: string } | null>(null)
+    const [expandedCategories, setExpandedCategories] = useState<number[]>([])
 
     // --- Filter State ---
     const [dateRange, setDateRange] = useState({
@@ -133,7 +136,9 @@ export default function AdminDashboard() {
         const { data } = await supabase
             .from('menu_items')
             .select('*')
-            .order('name')
+            .eq('is_deleted', false) // Filter out deleted items
+            .order('sort_order', { ascending: true }) // Sort by sort_order first
+            .order('name', { ascending: true })
 
         if (data) setMenuItems(data as any)
         setMenuLoading(false)
@@ -244,7 +249,8 @@ export default function AdminDashboard() {
             is_veg: newItem.is_veg,
             tags: newItem.tags.split(',').map(t => t.trim()).filter(Boolean),
             is_available: true,
-            variants: variantsFormatted.length > 0 ? variantsFormatted : null
+            variants: variantsFormatted.length > 0 ? variantsFormatted : null,
+            sort_order: menuItems.length + 1 // Add at end
         }
 
         const { error } = await supabase.from('menu_items').insert([payload])
@@ -259,6 +265,50 @@ export default function AdminDashboard() {
             setIsAddingItem(false)
             fetchMenu()
         }
+    }
+
+    const handleDeleteItem = async (id: string) => {
+        if (!confirm("Are you sure you want to delete this item?")) return
+        const { error } = await supabase.from('menu_items').update({ is_deleted: true }).eq('id', id)
+
+        if (error) {
+            console.error(error)
+            alert(error.message)
+        } else {
+            setMenuItems(prev => prev.filter(i => i.id !== id)) // Optimistic update
+        }
+    }
+
+    const moveMenuItem = async (id: string, direction: 'up' | 'down') => {
+        const index = menuItems.findIndex(i => i.id === id)
+        if (index === -1) return
+        if (direction === 'up' && index === 0) return
+        if (direction === 'down' && index === menuItems.length - 1) return
+
+        const targetIndex = direction === 'up' ? index - 1 : index + 1
+        const currentItem = menuItems[index]
+        const targetItem = menuItems[targetIndex]
+
+        // Swap sort_order
+        const currentOrder = currentItem.sort_order || 0
+        const targetOrder = targetItem.sort_order || 0
+
+        const newItems = [...menuItems]
+        // Swap locally for instant update
+        // We'll simplisticly swap indices, but relying on sort_order is better
+        // Let's assume sort_order is populated. If not, fallback to index?
+        // Let's assign temporary sort_orders if 0:
+        // Actually, let's just swap the sort_orders we have.
+
+        // DB Update
+        const { error: err1 } = await supabase.from('menu_items').update({ sort_order: targetOrder }).eq('id', currentItem.id)
+        const { error: err2 } = await supabase.from('menu_items').update({ sort_order: currentOrder }).eq('id', targetItem.id)
+
+        if (err1 || err2) {
+            console.error(err1, err2)
+            alert("Error moving item")
+        }
+        fetchMenu() // Refresh to be safe
     }
 
     // --- Banner Actions ---
@@ -547,6 +597,22 @@ export default function AdminDashboard() {
                             <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-purple-600">Total Orders</CardTitle></CardHeader>
                             <CardContent><div className="text-3xl font-bold">{filteredOrders.length}</div></CardContent>
                         </Card>
+                        <Card className="bg-gradient-to-br from-orange-50 to-white border-orange-100">
+                            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-orange-600">Inventory Status</CardTitle></CardHeader>
+                            <CardContent>
+                                <div className="flex justify-between items-end">
+                                    <div>
+                                        <div className="text-2xl font-bold text-green-600">{menuItems.filter(i => i.is_available).length}</div>
+                                        <div className="text-xs text-muted-foreground">In Stock</div>
+                                    </div>
+                                    <div className="mx-2 h-8 w-px bg-border"></div>
+                                    <div>
+                                        <div className="text-2xl font-bold text-red-600">{menuItems.filter(i => !i.is_available).length}</div>
+                                        <div className="text-xs text-muted-foreground">Out of Stock</div>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
                     </div>
 
                     {/* Charts */}
@@ -815,32 +881,82 @@ export default function AdminDashboard() {
 
                             <div className="space-y-2">
                                 {categories.map((cat, idx) => (
-                                    <Card key={cat.id} className="p-4 flex items-center justify-between">
-                                        {editingCategory?.id === cat.id ? (
-                                            <div className="flex gap-2 flex-1 mr-4">
-                                                <Input
-                                                    value={editingCategory?.name || ''}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value
-                                                        setEditingCategory(p => p ? { ...p, name: val } : null)
-                                                    }}
-                                                    onKeyDown={(e) => e.key === 'Enter' && handleUpdateCategory()}
-                                                />
-                                                <Button size="sm" variant="ghost" className="text-green-600" onClick={handleUpdateCategory}><Save size={16} /></Button>
-                                                <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setEditingCategory(null)}><X size={16} /></Button>
-                                            </div>
-                                        ) : (
-                                            <span className="font-medium flex-1 text-lg">{cat.name}</span>
-                                        )}
-
-                                        <div className="flex items-center gap-2">
-                                            <Button size="icon" variant="ghost" disabled={idx === 0} onClick={() => moveCategory(cat.id, 'up')}><ArrowUp className="h-4 w-4 text-muted-foreground" /></Button>
-                                            <Button size="icon" variant="ghost" disabled={idx === categories.length - 1} onClick={() => moveCategory(cat.id, 'down')}><ArrowDown className="h-4 w-4 text-muted-foreground" /></Button>
-                                            {!editingCategory && (
-                                                <Button size="icon" variant="ghost" onClick={() => setEditingCategory({ id: cat.id, name: cat.name })}><Edit className="h-4 w-4 text-blue-500" /></Button>
+                                    <Card key={cat.id} className="flex flex-col p-4">
+                                        <div className="flex items-center justify-between w-full">
+                                            {editingCategory?.id === cat.id ? (
+                                                <div className="flex gap-2 flex-1 mr-4">
+                                                    <Input
+                                                        value={editingCategory?.name || ''}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value
+                                                            setEditingCategory(p => p ? { ...p, name: val } : null)
+                                                        }}
+                                                        onKeyDown={(e) => e.key === 'Enter' && handleUpdateCategory()}
+                                                    />
+                                                    <Button size="sm" variant="ghost" className="text-green-600" onClick={handleUpdateCategory}><Save size={16} /></Button>
+                                                    <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setEditingCategory(null)}><X size={16} /></Button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-4 flex-1">
+                                                    <span className="font-medium text-lg">{cat.name}</span>
+                                                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                                        {menuItems.filter(i => Number(i.category_id) === cat.id).length} items
+                                                    </span>
+                                                </div>
                                             )}
-                                            <Button size="icon" variant="ghost" className="hover:bg-red-50" onClick={() => handleDeleteCategory(cat.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+
+                                            <div className="flex items-center gap-2">
+                                                <Button size="icon" variant="ghost" onClick={() => {
+                                                    setExpandedCategories(prev =>
+                                                        prev.includes(cat.id)
+                                                            ? prev.filter(id => id !== cat.id)
+                                                            : [...prev, cat.id]
+                                                    )
+                                                }}>
+                                                    {expandedCategories.includes(cat.id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                                </Button>
+                                                <Button size="icon" variant="ghost" disabled={idx === 0} onClick={() => moveCategory(cat.id, 'up')}><ArrowUp className="h-4 w-4 text-muted-foreground" /></Button>
+                                                <Button size="icon" variant="ghost" disabled={idx === categories.length - 1} onClick={() => moveCategory(cat.id, 'down')}><ArrowDown className="h-4 w-4 text-muted-foreground" /></Button>
+                                                {!editingCategory && (
+                                                    <Button size="icon" variant="ghost" onClick={() => setEditingCategory({ id: cat.id, name: cat.name })}><Edit className="h-4 w-4 text-blue-500" /></Button>
+                                                )}
+                                                <Button size="icon" variant="ghost" className="hover:bg-red-50" onClick={() => handleDeleteCategory(cat.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                                            </div>
                                         </div>
+
+                                        {expandedCategories.includes(cat.id) && (
+                                            <div className="mt-4 pl-4 border-l-2 border-muted space-y-2 animate-in slide-in-from-top-2 duration-200">
+                                                {menuItems.filter(i => Number(i.category_id) === cat.id).length === 0 ? (
+                                                    <p className="text-sm text-muted-foreground italic">No items in this category.</p>
+                                                ) : (
+                                                    menuItems.filter(i => Number(i.category_id) === cat.id)
+                                                        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+                                                        .map(item => (
+                                                            <div key={item.id} className="flex items-center justify-between p-2 bg-muted/30 rounded-md hover:bg-muted/50 transition-colors">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="relative h-8 w-8 rounded overflow-hidden bg-muted">
+                                                                        {item.image_url ? (
+                                                                            <img src={item.image_url} alt={item.name} className="object-cover w-full h-full" />
+                                                                        ) : (
+                                                                            <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">Img</div>
+                                                                        )}
+                                                                    </div>
+                                                                    <span className="text-sm font-medium">{item.name}</span>
+                                                                    {!item.is_available && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded">Out of Stock</span>}
+                                                                </div>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="h-7 px-2 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                                    onClick={() => handleDeleteItem(item.id)}
+                                                                >
+                                                                    <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+                                                                </Button>
+                                                            </div>
+                                                        ))
+                                                )}
+                                            </div>
+                                        )}
                                     </Card>
                                 ))}
                             </div>
@@ -907,7 +1023,7 @@ export default function AdminDashboard() {
                             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                 {menuItems.map(item => (
                                     <Card key={item.id} className="relative overflow-hidden group">
-                                        <div className="absolute top-2 right-2 z-10 flex gap-2">
+                                        <div className="absolute top-2 right-2 z-20 flex gap-2">
                                             <button
                                                 onClick={() => toggleAvailability(item.id, item.is_available)}
                                                 className={`px-2 py-1 rounded text-xs font-semibold shadow-sm transition-all ${item.is_available ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
@@ -915,9 +1031,14 @@ export default function AdminDashboard() {
                                                 {item.is_available ? 'In Stock' : 'Sold Out'}
                                             </button>
                                         </div>
-                                        <div className="aspect-video w-full overflow-hidden bg-muted">
+                                        <div className="aspect-video w-full overflow-hidden bg-muted relative">
+                                            {!item.is_available && (
+                                                <div className="absolute inset-0 bg-gray-900/50 flex items-center justify-center z-10 backdrop-blur-[1px]">
+                                                    <span className="text-white font-bold text-xl uppercase tracking-widest border-2 border-white px-4 py-2 rounded transform -rotate-12">Out of Stock</span>
+                                                </div>
+                                            )}
                                             {item.image_url ? (
-                                                <img src={item.image_url} alt={item.name} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                                                <img src={item.image_url} alt={item.name} className={`w-full h-full object-cover transition-transform group-hover:scale-105 ${!item.is_available ? 'grayscale' : ''}`} />
                                             ) : (
                                                 <div className="flex items-center justify-center w-full h-full text-muted-foreground"><ImageIcon size={24} /></div>
                                             )}
@@ -929,6 +1050,13 @@ export default function AdminDashboard() {
                                                     <p className="text-xs text-muted-foreground">{categories.find(c => c.id === item.category_id)?.name || 'Uncategorized'}</p>
                                                 </div>
                                                 <div className="font-bold text-primary">₹{item.price}</div>
+                                            </div>
+                                            <div className="flex justify-between items-center mt-4 pt-4 border-t">
+                                                <div className="flex gap-1">
+                                                    <Button size="sm" variant="ghost" onClick={() => moveMenuItem(item.id, 'up')}><ArrowUp className="h-4 w-4" /></Button>
+                                                    <Button size="sm" variant="ghost" onClick={() => moveMenuItem(item.id, 'down')}><ArrowDown className="h-4 w-4" /></Button>
+                                                </div>
+                                                <Button size="sm" variant="destructive" onClick={() => handleDeleteItem(item.id)}><Trash2 className="h-4 w-4 mr-1" /> Delete</Button>
                                             </div>
                                         </CardContent>
                                     </Card>
@@ -1055,6 +1183,7 @@ export default function AdminDashboard() {
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <h2 className="text-xl font-bold">Admin Settings</h2>
                     <MfaSettings />
+                    <WhatsAppSettings />
                 </div>
             )}
         </div>
