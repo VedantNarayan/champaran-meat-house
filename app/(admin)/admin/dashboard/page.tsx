@@ -103,6 +103,19 @@ export default function AdminDashboard() {
     const [editingCategory, setEditingCategory] = useState<{ id: number, name: string } | null>(null)
     const [expandedCategories, setExpandedCategories] = useState<number[]>([])
 
+    // Edit Item State
+    const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
+    const [editItemForm, setEditItemForm] = useState({
+        name: '',
+        description: '',
+        price: '',
+        category_id: '',
+        image_url: '',
+        is_veg: true,
+        tags: '',
+        variants: [] as { size: string, price: string }[]
+    })
+
     // --- Filter State ---
     const [dateRange, setDateRange] = useState({
         start: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
@@ -264,6 +277,40 @@ export default function AdminDashboard() {
             })
             setIsAddingItem(false)
             fetchMenu()
+        }
+    }
+
+    const handleUpdateItem = async () => {
+        if (!editingItem || !editItemForm.name || !editItemForm.price || !editItemForm.category_id) {
+            return alert("Please fill required fields")
+        }
+
+        const variantsFormatted = editItemForm.variants
+            .filter(v => v.size && v.price)
+            .map(v => ({ size: v.size, price: parseFloat(v.price) }))
+
+        const payload: any = {
+            name: editItemForm.name,
+            description: editItemForm.description,
+            price: parseFloat(editItemForm.price),
+            category_id: parseInt(editItemForm.category_id),
+            image_url: editItemForm.image_url,
+            is_veg: editItemForm.is_veg,
+            tags: editItemForm.tags.split(',').map(t => t.trim()).filter(Boolean),
+            variants: variantsFormatted.length > 0 ? variantsFormatted : null,
+        }
+
+        const { error } = await supabase
+            .from('menu_items')
+            .update(payload)
+            .eq('id', editingItem.id)
+
+        if (error) {
+            toast.error(error.message)
+        } else {
+            setEditingItem(null)
+            fetchMenu()
+            toast.success("Menu item updated successfully")
         }
     }
 
@@ -827,9 +874,14 @@ export default function AdminDashboard() {
                                             toast.success("Driver updated successfully")
                                         } else {
                                             // Create new
+                                            const { data: { session } } = await supabase.auth.getSession()
+
                                             const res = await fetch('/api/admin/create-driver', {
                                                 method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
+                                                headers: {
+                                                    'Content-Type': 'application/json',
+                                                    'Authorization': `Bearer ${session?.access_token}`
+                                                },
                                                 body: JSON.stringify(driverFormData)
                                             })
 
@@ -944,14 +996,36 @@ export default function AdminDashboard() {
                                                                     <span className="text-sm font-medium">{item.name}</span>
                                                                     {!item.is_available && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded">Out of Stock</span>}
                                                                 </div>
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="ghost"
-                                                                    className="h-7 px-2 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                                                    onClick={() => handleDeleteItem(item.id)}
-                                                                >
-                                                                    <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
-                                                                </Button>
+                                                                <div className="flex items-center gap-2">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        className="h-7 px-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                                                                        onClick={() => {
+                                                                            setEditingItem(item as MenuItem)
+                                                                            setEditItemForm({
+                                                                                name: item.name,
+                                                                                description: (item as any).description || '',
+                                                                                price: item.price.toString(),
+                                                                                category_id: item.category_id.toString(),
+                                                                                image_url: item.image_url || '',
+                                                                                is_veg: (item as any).is_veg ?? true,
+                                                                                tags: ((item as any).tags || []).join(', '),
+                                                                                variants: (item as any).variants || []
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        <Edit className="h-3.5 w-3.5 mr-1" /> Edit
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        className="h-7 px-2 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                                        onClick={() => handleDeleteItem(item.id)}
+                                                                    >
+                                                                        <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+                                                                    </Button>
+                                                                </div>
                                                             </div>
                                                         ))
                                                 )}
@@ -1000,7 +1074,7 @@ export default function AdminDashboard() {
                                             <label className="text-sm font-medium">Image URL</label>
                                             <div className="flex gap-2">
                                                 <input className="w-full p-2 border rounded" value={newItem.image_url} readOnly placeholder="Upload image..." />
-                                                <label className="cursor-pointer bg-secondary px-3 py-2 rounded flex items-center">
+                                                <label className="cursor-pointer bg-secondary px-3 py-2 rounded flex items-center shrink-0">
                                                     <ImageIcon size={16} />
                                                     <input type="file" className="hidden" onChange={async (e) => {
                                                         const file = e.target.files?.[0]
@@ -1011,6 +1085,25 @@ export default function AdminDashboard() {
                                                     }} />
                                                 </label>
                                             </div>
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="text-sm font-medium">Description</label>
+                                            <textarea className="w-full p-2 border rounded min-h-[80px]" value={newItem.description} onChange={e => setNewItem({ ...newItem, description: e.target.value })} />
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium block">Dietary Preference</label>
+                                            <div className="flex items-center gap-4 mt-2">
+                                                <label className="flex items-center gap-2 text-sm">
+                                                    <input type="radio" name="new_is_veg" checked={newItem.is_veg} onChange={() => setNewItem({ ...newItem, is_veg: true })} /> Veg
+                                                </label>
+                                                <label className="flex items-center gap-2 text-sm">
+                                                    <input type="radio" name="new_is_veg" checked={!newItem.is_veg} onChange={() => setNewItem({ ...newItem, is_veg: false })} /> Non-Veg
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium">Tags (comma-separated)</label>
+                                            <input className="w-full p-2 border rounded" placeholder="e.g. bestseller, spicy" value={newItem.tags} onChange={e => setNewItem({ ...newItem, tags: e.target.value })} />
                                         </div>
                                     </div>
                                     <div className="mt-4 flex justify-end gap-2">
@@ -1056,12 +1149,104 @@ export default function AdminDashboard() {
                                                     <Button size="sm" variant="ghost" onClick={() => moveMenuItem(item.id, 'up')}><ArrowUp className="h-4 w-4" /></Button>
                                                     <Button size="sm" variant="ghost" onClick={() => moveMenuItem(item.id, 'down')}><ArrowDown className="h-4 w-4" /></Button>
                                                 </div>
-                                                <Button size="sm" variant="destructive" onClick={() => handleDeleteItem(item.id)}><Trash2 className="h-4 w-4 mr-1" /> Delete</Button>
+                                                <div className="flex gap-2">
+                                                    <Button size="sm" variant="outline" className="text-blue-600 border-blue-200 hover:bg-blue-50" onClick={() => {
+                                                        setEditingItem(item as MenuItem)
+                                                        setEditItemForm({
+                                                            name: item.name,
+                                                            description: (item as any).description || '',
+                                                            price: item.price.toString(),
+                                                            category_id: item.category_id.toString(),
+                                                            image_url: item.image_url || '',
+                                                            is_veg: (item as any).is_veg ?? true,
+                                                            tags: ((item as any).tags || []).join(', '),
+                                                            variants: (item as any).variants || []
+                                                        })
+                                                    }}>
+                                                        <Edit className="h-4 w-4 mr-1" /> Edit
+                                                    </Button>
+                                                    <Button size="sm" variant="destructive" onClick={() => handleDeleteItem(item.id)}><Trash2 className="h-4 w-4 mr-1" /> Delete</Button>
+                                                </div>
                                             </div>
                                         </CardContent>
                                     </Card>
                                 ))}
                             </div>
+
+                            {/* Edit Item Dialog */}
+                            <Dialog open={!!editingItem} onOpenChange={(open) => !open && setEditingItem(null)}>
+                                <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                                    <DialogHeader>
+                                        <DialogTitle>Edit Menu Item</DialogTitle>
+                                        <DialogDescription>Update the details and properties of this menu item.</DialogDescription>
+                                    </DialogHeader>
+
+                                    {editingItem && (
+                                        <div className="grid gap-4 md:grid-cols-2 py-4">
+                                            <div>
+                                                <label className="text-sm font-medium">Name</label>
+                                                <input className="w-full p-2 border rounded" value={editItemForm.name} onChange={e => setEditItemForm({ ...editItemForm, name: e.target.value })} />
+                                            </div>
+                                            <div>
+                                                <label className="text-sm font-medium">Price (₹)</label>
+                                                <input type="number" className="w-full p-2 border rounded" value={editItemForm.price} onChange={e => setEditItemForm({ ...editItemForm, price: e.target.value })} />
+                                            </div>
+                                            <div>
+                                                <label className="text-sm font-medium">Category</label>
+                                                <select className="w-full p-2 border rounded" value={editItemForm.category_id} onChange={e => setEditItemForm({ ...editItemForm, category_id: e.target.value })}>
+                                                    <option value="">Select Category</option>
+                                                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-sm font-medium">Image URL</label>
+                                                <div className="flex gap-2">
+                                                    <input className="w-full p-2 border rounded" value={editItemForm.image_url} readOnly placeholder="Upload image..." />
+                                                    <label className="cursor-pointer bg-secondary px-3 py-2 rounded flex items-center shrink-0">
+                                                        <ImageIcon size={16} />
+                                                        <input type="file" className="hidden" onChange={async (e) => {
+                                                            const file = e.target.files?.[0]
+                                                            if (file) {
+                                                                const url = await uploadImage(file, 'menu')
+                                                                if (url) setEditItemForm({ ...editItemForm, image_url: url })
+                                                            }
+                                                        }} />
+                                                    </label>
+                                                </div>
+                                                {editItemForm.image_url && (
+                                                    <div className="mt-2 text-xs text-blue-600 border p-1 rounded bg-blue-50 truncate">
+                                                        {editItemForm.image_url}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="md:col-span-2">
+                                                <label className="text-sm font-medium">Description</label>
+                                                <textarea className="w-full p-2 border rounded min-h-[80px]" value={editItemForm.description} onChange={e => setEditItemForm({ ...editItemForm, description: e.target.value })} />
+                                            </div>
+                                            <div>
+                                                <label className="text-sm font-medium block">Dietary Preference</label>
+                                                <div className="flex items-center gap-4 mt-2">
+                                                    <label className="flex items-center gap-2 text-sm">
+                                                        <input type="radio" name="edit_is_veg" checked={editItemForm.is_veg} onChange={() => setEditItemForm({ ...editItemForm, is_veg: true })} /> Veg
+                                                    </label>
+                                                    <label className="flex items-center gap-2 text-sm">
+                                                        <input type="radio" name="edit_is_veg" checked={!editItemForm.is_veg} onChange={() => setEditItemForm({ ...editItemForm, is_veg: false })} /> Non-Veg
+                                                    </label>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="text-sm font-medium">Tags (comma-separated)</label>
+                                                <input className="w-full p-2 border rounded" placeholder="e.g. bestseller, spicy" value={editItemForm.tags} onChange={e => setEditItemForm({ ...editItemForm, tags: e.target.value })} />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <DialogFooter>
+                                        <Button variant="outline" onClick={() => setEditingItem(null)}>Cancel</Button>
+                                        <Button onClick={handleUpdateItem}>Save Changes</Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
                         </div>
                     )}
                 </div>

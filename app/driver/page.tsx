@@ -73,9 +73,9 @@ export default function DriverPage() {
     }
 
     // Available: Status is 'preparing' OR 'confirmed' OR 'ready' (ready for kitchen/driver processing)
-    // And NOT assigned to another driver (though our logic assigns on pickup)
+    // We don't filter by !o.driver_id because an admin might revert a delivered order back to 'ready', leaving a stale driver_id.
     const availableOrders = orders.filter(o =>
-        (o.status === 'preparing' || o.status === 'confirmed' || o.status === 'ready') && !o.driver_id
+        o.status === 'preparing' || o.status === 'confirmed' || o.status === 'ready'
     )
 
     // My Deliveries: Assigned to me and not yet delivered (or delivered recently? keep it simple: out_for_delivery)

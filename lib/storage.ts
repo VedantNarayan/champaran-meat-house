@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabaseClient"
+import { toast } from "sonner"
 
 export async function uploadImage(file: File, folder: string = 'uploads'): Promise<string | null> {
     try {
@@ -11,6 +12,7 @@ export async function uploadImage(file: File, folder: string = 'uploads'): Promi
 
         if (error) {
             console.error("Upload error:", error)
+            toast.error(`Image Upload Failed: ${error.message}`)
             throw error
         }
 
@@ -19,8 +21,9 @@ export async function uploadImage(file: File, folder: string = 'uploads'): Promi
             .getPublicUrl(fileName)
 
         return publicUrl
-    } catch (error) {
+    } catch (error: any) {
         console.error("Failed to upload image:", error)
+        toast.error(error?.message || "Failed to upload image")
         return null
     }
 }

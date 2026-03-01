@@ -36,7 +36,7 @@ export function ImageSlider({ images, alt, className }: ImageSliderProps) {
     return (
         <div className={cn("relative w-full h-full overflow-hidden group", className)}>
             <img
-                src={images[currentIndex]}
+                src={images[currentIndex] || "/Logo.jpeg"}
                 alt={`${alt} - ${currentIndex + 1}`}
                 className="w-full h-full object-cover transition-transform duration-500"
             />

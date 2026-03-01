@@ -60,7 +60,9 @@ export default function Home() {
         const { data: menuData } = await supabase
           .from('menu_items')
           .select('*')
-        // .eq('is_available', true) // Fetch all to show Out of Stock
+          .eq('is_deleted', false)
+          .order('sort_order', { ascending: true })
+          .order('name', { ascending: true })
 
         if (categoriesData) setCategories(categoriesData)
         if (menuData) setMenuItems(menuData)
@@ -181,7 +183,7 @@ export default function Home() {
               >
                 <div className="aspect-[4/3] w-full overflow-hidden relative">
                   <img
-                    src={item.image_url}
+                    src={item.image_url || "/Logo.jpeg"}
                     alt={item.name}
                     className={cn(
                       "h-full w-full object-cover transition-transform duration-500",
